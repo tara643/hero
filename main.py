@@ -12,9 +12,15 @@ what was copied verbatim, what was intentionally left out, and why.
 CONFIRMED (from REDCap Cloud UI / the captured curl, not guessed):
   - Site name:              "BioAstra"
   - Event display name:     "Tara Mission"
-  - Event on import needs an OCCURRENCE SUFFIX: "Tara Mission(N)", because
-    the event is Repeating/Dynamic and a plain name doesn't say which visit
-    you're writing to. Each item also carries a matching "crfOccurrence": N.
+  - Event name on import is ALWAYS "Tara Mission(1)" -- fixed, not per-visit.
+    (CORRECTED 2026-08-14 -- the event itself does not repeat per timepoint;
+    what repeats per monthly visit is the CRF/instrument occurrence within
+    that one event, i.e. crfOccurrence. Every item carries a matching
+    "crfOccurrence": N for whichever timepoint (1-10) this submission is
+    for. Explicit instruction, not inferred from the earlier curl capture --
+    that capture's eventName "(1)" alongside crfOccurrence: 2 wasn't drift
+    between two things that should agree; it was correct: event stays at
+    (1), crfOccurrence was 2.)
   - REDCap Cloud API host:  https://eulogin.redcapcloud.com
   - Import endpoint:        POST /rest/v2/import/records
   - Every field on the instrument must be sent on every import, even unset
@@ -26,30 +32,30 @@ CONFIRMED (from REDCap Cloud UI / the captured curl, not guessed):
 CHANGED 2026-08-14 (from the previous version of this file):
 
   1. REMOVED the "timepoint" item entirely.
-     The captured curl sent THREE different signals for "which visit is
-     this" that didn't even agree with each other in the test payload:
-     eventName said "(1)", crfOccurrence said 2, and the "timepoint" item's
-     itemValue said "1". Rather than keep three redundant, driftable
-     sources of truth, crfOccurrence (and the matching eventName suffix)
-     is now the ONLY signal for which monthly visit a submission belongs
-     to. resolve_occurrence() below is the single place that number comes
-     from. The "timepoint" field/response-set on the HERO TARA Collection
-     instrument still exists in REDCap Cloud -- it's just not written by
-     this backend anymore. If it needs to stay populated for some other
-     reason (e.g. a REDCap-side report keys off it), say so and it can be
-     added back as a fourth thing that must always agree with the other
-     three, but that reintroduces the exact drift this rebuild removes.
+     An earlier version of this file also had eventName's suffix tracking
+     crfOccurrence (both driven by the same timepoint number), which made
+     the old "timepoint" item genuinely redundant with two other signals.
+     Now that eventName is fixed at "(1)" and only crfOccurrence varies,
+     "timepoint" is redundant with just crfOccurrence -- still one thing
+     too many. crfOccurrence remains the single signal for which monthly
+     visit a submission belongs to; resolve_occurrence() below is the only
+     place that number comes from. The "timepoint" field/response-set on
+     the HERO TARA Collection instrument still exists in REDCap Cloud --
+     it's just not written by this backend. If it needs to stay populated
+     for some other reason (e.g. a REDCap-side report keys off it), it can
+     be added back, sourced from the same resolve_occurrence() value so it
+     can't drift from crfOccurrence.
 
   2. Participant-enrollment fields (participantScreeningNumber,
      participantStatus, participantEnrollmentDate, participantScreeningDate,
-     participantCreationDate) are only sent on occurrence 1 (baseline), not
-     copied onto every monthly submission. The captured curl included them
-     on every occurrence because it was replaying a full record export; a
-     real monthly submission doesn't have a genuine new enrollment date to
-     report, and resending a fabricated "today" as the enrollment date on
-     every visit would silently overwrite the real one each time. If this
-     assumption is wrong, remove the `if occurrence == 1` guard in
-     build_participant_metadata() below.
+     participantCreationDate) are only sent when crfOccurrence is 1
+     (baseline), not copied onto every monthly submission. The captured
+     curl included them on every occurrence because it was replaying a
+     full record export; a real monthly submission doesn't have a genuine
+     new enrollment date to report, and resending a fabricated "today" as
+     the enrollment date on every visit would silently overwrite the real
+     one each time. If this assumption is wrong, remove the
+     `if occurrence == 1` guard in build_participant_metadata() below.
 
   3. Per-item "updatedBy"/"updatedDate" (present on almost every item in
      the captured curl) and "eventUpdatedBy"/"eventUpdatedDate" are NOT
@@ -114,7 +120,7 @@ if not REDCAP_API_TOKEN:
 # Study constants
 # ---------------------------------------------------------------------------
 SITE_NAME_TARA = "BioAstra"
-EVENT_LABEL_TARA = "Tara Mission"  # occurrence suffix appended per-record below
+EVENT_NAME_TARA = "Tara Mission(1)"  # fixed -- always (1), see module docstring. crfOccurrence carries the visit number.
 EVENT_STATUS_ACTIVE = "1"
 PARTICIPANT_STATUS_ENROLLED = "1"
 
@@ -191,11 +197,13 @@ class TaraRecordPayload(BaseModel):
 # Helpers
 # ---------------------------------------------------------------------------
 def resolve_occurrence(payload: TaraRecordPayload) -> int:
-    """Map a submission to its REDCap Cloud CRF/event occurrence number.
+    """Map a submission to its REDCap Cloud CRF occurrence number.
 
-    This is now the SINGLE source of truth for which monthly visit a
-    submission belongs to (see module docstring, change #1) -- it drives
-    both the eventName "(N)" suffix and every item's crfOccurrence.
+    This is the single source of truth for which monthly visit a
+    submission belongs to. It drives every item's crfOccurrence (and gates
+    the baseline-only participant metadata block) -- it does NOT drive
+    eventName, which is always fixed at "Tara Mission(1)" (see module
+    docstring).
 
     Each of the app's 10 timepoints is one occurrence of the Repeating/
     Dynamic "Tara Mission" event, so occurrence = timepoint number. If the
@@ -370,14 +378,17 @@ def health():
 
 @app.post("/webhook/hero-tara")
 def webhook_hero_tara(payload: TaraRecordPayload):
+    # occurrence drives crfOccurrence on every item (and gates the baseline
+    # participant-metadata block) -- it does NOT drive eventName anymore.
+    # eventName is fixed at "Tara Mission(1)" regardless of which timepoint
+    # this is. See module docstring.
     occurrence = resolve_occurrence(payload)
-    event_name = f"{EVENT_LABEL_TARA}({occurrence})"
 
     record = {
         "participantId": payload.code,
         **build_participant_metadata(payload, occurrence),
         "siteName": SITE_NAME_TARA,
-        "eventName": event_name,
+        "eventName": EVENT_NAME_TARA,
         "eventDate": payload.date,
         "eventStatus": EVENT_STATUS_ACTIVE,
         "items": build_redcap_items(payload, occurrence),
