@@ -42,14 +42,25 @@ CHANGED 2026-08-14 (from the previous version of this file):
 
   2. Participant-enrollment fields (participantScreeningNumber,
      participantStatus, participantEnrollmentDate, participantScreeningDate,
-     participantCreationDate) are only sent when crfOccurrence is 1
-     (baseline), not copied onto every monthly submission. The captured
-     curl included them on every occurrence because it was replaying a
-     full record export; a real monthly submission doesn't have a genuine
-     new enrollment date to report, and resending a fabricated "today" as
-     the enrollment date on every visit would silently overwrite the real
-     one each time. If this assumption is wrong, remove the
-     `if occurrence == 1` guard in build_participant_metadata() below.
+     participantCreationDate) are now sent on EVERY submission, not just
+     occurrence 1. REVERSED 2026-08-14: this was previously baseline-only,
+     to avoid resending a fabricated "today" as the enrollment date on
+     every monthly visit. That's still a real concern (see below), but a
+     real submission at occurrence 4 came back 200 [] with this block
+     omitted, and REDCap Cloud support's guidance has been to match their
+     template on import. Getting writes to actually happen took priority
+     over the staleness concern. OPERATIONAL NOTE: participantEnrollmentDate
+     and participantScreeningDate will now show as "today" on every synced
+     visit, not just the real enrollment date, unless/until confirmed that
+     REDCap Cloud ignores these fields on records that already exist. Worth
+     asking REDCap Cloud support directly whether that's the case; if they
+     confirm it matters, this needs a different fix (e.g. sourcing the real
+     enrollment date from REDCap's own export rather than fabricating one).
+
+  2b. "eventDate" is now a full ISO datetime (date + current time-of-day),
+     matching the captured curl's "2026-08-14T16:30:00Z" -- previously a
+     bare "YYYY-MM-DD" date, another structural difference from the
+     confirmed-working shape that hadn't been corrected yet.
 
   3. Per-item "updatedBy"/"updatedDate" (present on almost every item in
      the captured curl) and "eventUpdatedBy"/"eventUpdatedDate" are NOT
@@ -297,15 +308,15 @@ def build_redcap_items(payload: TaraRecordPayload, occurrence: int) -> list[dict
 def build_participant_metadata(payload: TaraRecordPayload, occurrence: int) -> dict:
     """Participant-enrollment fields from the confirmed-working curl.
 
-    Only included on occurrence 1 (baseline) -- see module docstring,
-    change #2, for why this isn't resent on every monthly submission.
+    Sent on EVERY submission now, not just occurrence 1 -- see module
+    docstring, change #2, including the operational caveat about
+    participantEnrollmentDate/participantScreeningDate showing "today" on
+    every sync. `occurrence` is unused now that the gate is gone; kept as a
+    parameter in case that logic needs to come back.
     participantInitials is deliberately omitted: the app collects no
     crew-member name to derive it from, and putting something fabricated
     there seemed worse than leaving the field out.
     """
-    if occurrence != 1:
-        return {}
-
     now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
     today_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT00:00:00Z")
 
@@ -316,6 +327,16 @@ def build_participant_metadata(payload: TaraRecordPayload, occurrence: int) -> d
         "participantScreeningDate": today_iso,
         "participantCreationDate": now_iso,
     }
+
+
+def build_event_date(payload: TaraRecordPayload) -> str:
+    """Full ISO datetime for eventDate, matching the confirmed curl's
+    "2026-08-14T16:30:00Z" shape (date + time), not a bare date. See
+    module docstring, change #2b. Uses the app's selected date combined
+    with the current UTC time-of-day at submission.
+    """
+    now = datetime.now(timezone.utc)
+    return f"{payload.date}T{now.strftime('%H:%M:%S')}Z"
 
 
 # Display titles used in HERO_TARA_Crew_App.html's SAMPLES object, mapped
@@ -390,7 +411,7 @@ def webhook_hero_tara(payload: TaraRecordPayload):
         **build_participant_metadata(payload, occurrence),
         "siteName": SITE_NAME_TARA,
         "eventName": EVENT_NAME_TARA,
-        "eventDate": payload.date,
+        "eventDate": build_event_date(payload),
         "eventStatus": EVENT_STATUS_ACTIVE,
         "items": build_redcap_items(payload, occurrence),
     }
