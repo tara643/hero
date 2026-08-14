@@ -37,12 +37,27 @@ from typing import Optional
 
 import requests
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("hero-api")
 
 app = FastAPI(title="HERO Study REDCap Cloud Bridge")
+
+# The app (HERO_TARA_Crew_App.html) runs in a mobile browser and calls this
+# backend cross-origin. Without CORS middleware, browsers send an OPTIONS
+# preflight before every POST, and FastAPI has no handler for it by
+# default — resulting in every real submission being silently blocked
+# with a 405, visible in Render logs as repeated
+# "OPTIONS /webhook/hero-tara ... 405 Method Not Allowed" with no
+# matching POST ever following. Confirmed 2026-08-14 in production logs.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # ---------------------------------------------------------------------------
 # Config -- values live in Render environment variables, never hardcoded here
