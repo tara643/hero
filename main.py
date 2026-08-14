@@ -31,20 +31,14 @@ CONFIRMED (from REDCap Cloud UI / the captured curl, not guessed):
 
 CHANGED 2026-08-14 (from the previous version of this file):
 
-  1. REMOVED the "timepoint" item entirely.
-     An earlier version of this file also had eventName's suffix tracking
-     crfOccurrence (both driven by the same timepoint number), which made
-     the old "timepoint" item genuinely redundant with two other signals.
-     Now that eventName is fixed at "(1)" and only crfOccurrence varies,
-     "timepoint" is redundant with just crfOccurrence -- still one thing
-     too many. crfOccurrence remains the single signal for which monthly
-     visit a submission belongs to; resolve_occurrence() below is the only
-     place that number comes from. The "timepoint" field/response-set on
-     the HERO TARA Collection instrument still exists in REDCap Cloud --
-     it's just not written by this backend. If it needs to stay populated
-     for some other reason (e.g. a REDCap-side report keys off it), it can
-     be added back, sourced from the same resolve_occurrence() value so it
-     can't drift from crfOccurrence.
+  1. "timepoint"'s value is now GUARANTEED to match crfOccurrence, because
+     both come from the exact same integer -- resolve_occurrence() below,
+     called once per submission. Previously (two revisions ago) these were
+     resolved independently and could disagree; then (one revision ago)
+     "timepoint" was removed entirely. Per direct feedback from REDCap
+     Cloud support -- timepoint must match crfOccurrence -- the fix is to
+     derive both from one source rather than either drop one or trust them
+     to independently agree.
 
   2. Participant-enrollment fields (participantScreeningNumber,
      participantStatus, participantEnrollmentDate, participantScreeningDate,
@@ -242,15 +236,22 @@ def build_redcap_items(payload: TaraRecordPayload, occurrence: int) -> list[dict
     """Translate the app's payload into REDCap Cloud item objects.
 
     Field list confirmed 2026-08-14 directly against the HERO TARA
-    Collection instrument: participant_code, mission_hero, date, notes,
-    then <sample>_done/_time/_notes for draw, proc, spit, swabs, stool,
-    urine, then the instrument completion field. NO "timepoint" item --
-    see module docstring, change #1.
+    Collection instrument: participant_code, mission_hero, date, timepoint,
+    notes, then <sample>_done/_time/_notes for draw, proc, spit, swabs,
+    stool, urine, then the instrument completion field.
+
+    "timepoint"'s itemValue is str(occurrence) -- the exact same integer
+    used for crfOccurrence on every item below, not a separately-resolved
+    value. Per direct feedback from REDCap Cloud support: timepoint must
+    match crfOccurrence. Deriving both from one number, in one place
+    (resolve_occurrence()), makes that a guarantee rather than something
+    that has to be kept in sync by hand.
     """
     items = [
         _item("participant_code", payload.code, occurrence),
         _item("mission_hero", payload.mission, occurrence),
         _item("date", payload.date, occurrence),
+        _item("timepoint", str(occurrence), occurrence),
         _item("notes", payload.notes, occurrence),
     ]
 
@@ -399,6 +400,15 @@ def webhook_hero_tara(payload: TaraRecordPayload):
         payload.code, occurrence, record,
     )
     result = post_to_redcap([record])
+    # Debugging visibility, not needed for REDCap Cloud itself: lets the
+    # app (or anyone testing with curl/Postman) confirm what this backend
+    # actually computed and sent, without needing Render log access.
+    result["debug"] = {
+        "timepoint_selected": payload.timepoint,
+        "crf_occurrence_used": occurrence,
+        "event_name_sent": EVENT_NAME_TARA,
+        "participant_metadata_included": bool(build_participant_metadata(payload, occurrence)),
+    }
     return result
 
 
