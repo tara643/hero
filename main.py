@@ -90,6 +90,8 @@ import requests
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from fastapi.responses import FileResponse
+from pathlib import Path
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("hero-api")
@@ -396,7 +398,9 @@ def post_to_redcap(record_body: list[dict]) -> dict:
 @app.get("/")
 def health():
     return {"status": "ok", "service": "hero-tara-api"}
-
+@app.get("/tara")
+   def tara_app():
+       return FileResponse(Path(__file__).parent / "HERO_TARA_Crew_App.html")
 
 @app.post("/webhook/hero-tara")
 def webhook_hero_tara(payload: TaraRecordPayload):
