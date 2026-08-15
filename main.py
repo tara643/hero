@@ -127,7 +127,7 @@ if not REDCAP_API_TOKEN:
 # Study constants
 # ---------------------------------------------------------------------------
 SITE_NAME_TARA = "BioAstra"
-EVENT_NAME_TARA = "tara_mission"   # unique event name (stable; not the display label)
+EVENT_NAME_TARA = "Tara Mission (1)"   # unique event name (stable; not the display label)
 EVENT_STATUS_ACTIVE = "1"
 PARTICIPANT_STATUS_ENROLLED = "1"
 
