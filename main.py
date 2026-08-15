@@ -279,7 +279,7 @@ def build_redcap_items(payload: TaraRecordPayload, occurrence: int) -> list[dict
     for prefix in ALL_SAMPLE_PREFIXES:
         sample = by_prefix.get(prefix)
         done = bool(sample.done) if sample else False
-        time_val = f"{payload.date} {sample.time}" if (sample and sample.time) else None
+        time_val = sample.time if (sample and sample.time) else None
         note_val = sample.note if (sample and sample.note) else None
 
         items.append(_item(f"{prefix}_done", "true" if done else "false", occurrence))
