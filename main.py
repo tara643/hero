@@ -127,7 +127,7 @@ if not REDCAP_API_TOKEN:
 # Study constants
 # ---------------------------------------------------------------------------
 SITE_NAME_TARA = "BioAstra"
-EVENT_NAME_TARA = "Tara Mission(1)"  # fixed -- always (1), see module docstring. crfOccurrence carries the visit number.
+EVENT_NAME_TARA = "tara_mission"   # unique event name (stable; not the display label)
 EVENT_STATUS_ACTIVE = "1"
 PARTICIPANT_STATUS_ENROLLED = "1"
 
