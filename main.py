@@ -399,8 +399,8 @@ def post_to_redcap(record_body: list[dict]) -> dict:
 def health():
     return {"status": "ok", "service": "hero-tara-api"}
 @app.get("/tara")
-   def tara_app():
-       return FileResponse(Path(__file__).parent / "HERO_TARA_Crew_App.html")
+def tara_app():
+    return FileResponse(Path(__file__).parent / "HERO_TARA_Crew_App.html")
 
 @app.post("/webhook/hero-tara")
 def webhook_hero_tara(payload: TaraRecordPayload):
